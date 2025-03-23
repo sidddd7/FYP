@@ -1,6 +1,7 @@
 module.exports = (io) => {
     let cameraSocket = null;
-    let monitorSocket = null;
+    // Replace single monitor socket with a Set to track multiple viewers
+    const monitorSockets = new Set();
 
     io.on('connection', (socket) => {
         console.log('User connected:', socket.id);
@@ -9,21 +10,35 @@ module.exports = (io) => {
             if (type === 'camera') {
                 console.log('Camera registered:', socket.id);
                 cameraSocket = socket;
-                if (monitorSocket) {
-                    cameraSocket.emit('monitor-connected');
+                // Notify all monitors that camera is connected
+                if (monitorSockets.size > 0) {
+                    socket.emit('monitor-connected');
                 }
             } else if (type === 'monitor') {
                 console.log('Monitor registered:', socket.id);
-                monitorSocket = socket;
+                monitorSockets.add(socket);
+                // If camera is already connected, notify the new monitor
                 if (cameraSocket) {
                     cameraSocket.emit('monitor-connected');
                 }
             }
         });
 
+        socket.on('monitor-connected', () => {
+            if (cameraSocket) {
+                cameraSocket.emit('monitor-connected');
+            }
+        });
+
         socket.on('offer', (offer) => {
-            if (monitorSocket) {
-                monitorSocket.emit('offer', offer);
+            // Only forward offer to the specific monitor that just connected
+            // This is part of the WebRTC signaling process
+            if (monitorSockets.size > 0) {
+                // The offer should be sent to all monitors that don't have a connection yet
+                monitorSockets.forEach(monitorSocket => {
+                    // We'll rely on the client-side logic to handle duplicate offers
+                    monitorSocket.emit('offer', offer);
+                });
             }
         });
 
@@ -34,43 +49,34 @@ module.exports = (io) => {
         });
 
         socket.on('ice-candidate', (candidate) => {
-            if (!cameraSocket || !monitorSocket) return;
+            if (!cameraSocket && monitorSockets.size === 0) return;
 
-            if (socket.id === cameraSocket.id) {
-                monitorSocket.emit('ice-candidate', candidate);
-            } else if (socket.id === monitorSocket.id) {
-                cameraSocket.emit('ice-candidate', candidate);
+            if (cameraSocket && socket.id === cameraSocket.id) {
+                // Send camera's ICE candidates to all monitors
+                monitorSockets.forEach(monitorSocket => {
+                    monitorSocket.emit('ice-candidate', candidate);
+                });
+            } else {
+                // If this is a monitor sending an ICE candidate, forward it to the camera
+                if (cameraSocket) {
+                    cameraSocket.emit('ice-candidate', candidate);
+                }
             }
         });
 
         socket.on('disconnect', () => {
             console.log('User disconnected:', socket.id);
-            if (socket.id === cameraSocket?.id) {
+            if (cameraSocket && socket.id === cameraSocket.id) {
                 console.log('Camera disconnected');
                 cameraSocket = null;
+                // Notify all monitors that camera disconnected
+                monitorSockets.forEach(monitorSocket => {
+                    monitorSocket.emit('camera-disconnected');
+                });
             }
-            if (socket.id === monitorSocket?.id) {
-                console.log('Monitor disconnected');
-                monitorSocket = null;
-            }
+            
+            // Remove the socket from monitorSockets if it exists there
+            monitorSockets.delete(socket);
         });
     });
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
