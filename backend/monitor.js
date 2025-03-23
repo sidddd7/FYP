@@ -4,13 +4,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const startPlaybackButton = document.getElementById('startPlayback');
     let peerConnection;
     let isStreamSet = false;
-
     
     const videoWidth = 640; 
     const videoHeight = 480; 
     remoteVideo.width = videoWidth;
     remoteVideo.height = videoHeight;
-
     
     const maintainAspectRatio = () => {
         const aspectRatio = videoWidth / videoHeight;
@@ -20,7 +18,6 @@ document.addEventListener("DOMContentLoaded", () => {
         remoteVideo.style.width = '100%'; 
         remoteVideo.style.height = `${calculatedHeight}px`;
     };
-
     
     window.addEventListener('resize', maintainAspectRatio);
 
@@ -37,13 +34,45 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error('startPlaybackButton not found in DOM');
     }
 
+    // Initialize connection with server
     socket.emit('register', 'monitor');
     socket.emit('monitor-connected');
+
+    // Handle camera disconnection
+    socket.on('camera-disconnected', () => {
+        console.log('Camera disconnected');
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+        
+        if (remoteVideo.srcObject) {
+            const tracks = remoteVideo.srcObject.getTracks();
+            tracks.forEach(track => track.stop());
+            remoteVideo.srcObject = null;
+        }
+        
+        isStreamSet = false;
+        
+        // Show a message or update UI to indicate camera is offline
+        if (startPlaybackButton) {
+            startPlaybackButton.textContent = 'Camera Offline';
+            startPlaybackButton.disabled = true;
+            startPlaybackButton.style.display = 'block';
+        }
+        
+        remoteVideo.style.display = 'none';
+    });
 
     socket.on('offer', async (offer) => {
         console.log("Received Offer (Monitor):", offer);
 
         try {
+            // Close any existing peer connection
+            if (peerConnection) {
+                peerConnection.close();
+            }
+            
             peerConnection = new RTCPeerConnection({
                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             });
@@ -71,14 +100,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (event && event.streams && event.streams[0]) {
                     console.log("Remote stream:", event.streams[0]);
                     try {
-                        if (!isStreamSet) {
-                            remoteVideo.srcObject = event.streams[0];
-                            isStreamSet = true;
-                            console.log("Stream set to remoteVideo");
-
-                            // Maintain aspect ratio after setting the stream
-                            maintainAspectRatio();
+                        remoteVideo.srcObject = event.streams[0];
+                        isStreamSet = true;
+                        console.log("Stream set to remoteVideo");
+                        
+                        // Enable play button if it was disabled
+                        if (startPlaybackButton) {
+                            startPlaybackButton.textContent = 'Start Video';
+                            startPlaybackButton.disabled = false;
                         }
+
+                        // Maintain aspect ratio after setting the stream
+                        maintainAspectRatio();
                     } catch (error) {
                         console.error("Error setting remote video stream:", error);
                     }
@@ -126,23 +159,3 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
