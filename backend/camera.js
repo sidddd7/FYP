@@ -8,24 +8,30 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
         localStream = stream;
         console.log("Local Stream (Camera):", localStream);
+        
+        // Display the local stream in a video element (optional)
+        const localVideo = document.getElementById('localVideo');
+        if (localVideo) {
+            localVideo.srcObject = stream;
+        }
 
         socket.on('monitor-connected', async () => {
             console.log("Monitor connected, creating offer");
 
             try {
+                // We create a new RTCPeerConnection for each monitor connection request
+                // This ensures we're in a clean state for signaling
+                if (peerConnection) {
+                    peerConnection.close();
+                }
                 
                 peerConnection = new RTCPeerConnection({
                     iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        
+                        { urls: 'stun:stun.l.google.com:19302' }
                     ]
                 });
 
-                
-
-               
-
-                
+                // Add all local tracks to the peer connection
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
                 peerConnection.onicecandidate = event => {
@@ -60,7 +66,9 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         socket.on('answer', async answer => {
             console.log("Received Answer (Camera):", answer);
             try {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                if (peerConnection) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                }
             } catch (error) {
                 console.error("Error setting remote description (Camera):", error);
             }
@@ -79,48 +87,13 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     })
     .catch(error => console.error('getUserMedia error (Camera):', error));
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Handle page unload to clean up resources
+window.addEventListener('beforeunload', () => {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+    }
+    
+    if (peerConnection) {
+        peerConnection.close();
+    }
+});
